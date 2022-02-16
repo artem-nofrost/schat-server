@@ -49,7 +49,7 @@ module.exports = (socket) => {
     ////************** */
 
     // получаем список сообщений с конкретным пользователем, если он есть
-    socket.on('current_chat', (id, skip, load_more) => {
+    socket.on('current_chat', (id) => {
         const get_current_messages = async () => {
             if (ObjectID.isValid(id)) {
                 let [err, comp_user] = await modelUser.find({
@@ -73,14 +73,14 @@ module.exports = (socket) => {
                     let user_id = user._id.toString();
 
                     // socket.join(user_id + id);
-                    // let skip = 0;
-                    // let limit = 10;
+                    let skip = 0;
+                    let limit = 10;
                     let [errMessages, messageList] =
                         await model.current_message_list(
                             user_id,
                             id,
                             skip,
-                            // limit,
+                            limit,
                         );
                     if (errMessages) {
                         log('internal', errMessages);
@@ -88,20 +88,11 @@ module.exports = (socket) => {
                         return;
                     }
 
-                    let loadMoreInfo = {};
-
-                    if (!load_more) {
-                        loadMoreInfo = {
-                            companion_id: id,
-                            comp_fname: comp_user.fname,
-                            comp_lname: comp_user.lname,
-                            online: comp_user.is_online,
-                            messages: messageList,
-                        };
-                    }
-
                     socket.emit('current_chat', {
-                        ...loadMoreInfo,
+                        comp_fname: comp_user.fname,
+                        comp_lname: comp_user.lname,
+                        online: comp_user.is_online,
+                        companion_id: id,
                         messages: messageList,
                     });
                 } else {
@@ -111,6 +102,64 @@ module.exports = (socket) => {
                 }
             } else {
                 socket.emit('current_chat', {
+                    errorMessage: 'user_not_found',
+                });
+            }
+        };
+        get_current_messages();
+    });
+
+    // получаем список сообщений с конкретным пользователем, если он есть
+    socket.on('load_more_chat', (id, skip) => {
+        const get_current_messages = async () => {
+            if (ObjectID.isValid(id)) {
+                let [err, comp_user] = await modelUser.find({
+                    _id: new ObjectID(id),
+                });
+                if (err) {
+                    log('internal', err);
+                    socket.emit('load_more_chat', { error: 'internal' });
+                    return;
+                }
+                if (comp_user) {
+                    let mySocket = await get_socket_id(socket);
+                    let [err, user] = await modelUser.find({
+                        socket_ids: mySocket,
+                    });
+                    if (err) {
+                        log('internal', err);
+                        socket.emit('load_more_chat', { error: 'internal' });
+                        return;
+                    }
+                    let user_id = user._id.toString();
+
+                    // socket.join(user_id + id);
+                    // let skip = 0;
+                    let limit = 10;
+                    let [errMessages, messageList] =
+                        await model.current_message_list(
+                            user_id,
+                            id,
+                            skip,
+                            limit,
+                        );
+                    if (errMessages) {
+                        log('internal', errMessages);
+                        socket.emit('load_more_chat', { error: 'internal' });
+                        return;
+                    }
+
+                    socket.emit('load_more_chat', {
+                        companion_id: id,
+                        messages: messageList,
+                    });
+                } else {
+                    socket.emit('load_more_chat', {
+                        errorMessage: 'user_not_found',
+                    });
+                }
+            } else {
+                socket.emit('load_more_chat', {
                     errorMessage: 'user_not_found',
                 });
             }

@@ -249,7 +249,7 @@ model.current_message_list = async (user_id, id, skip, limit) => {
                     { $sort: { time: 1 } },
                     { $sort: { _id: -1 } },
                     { $skip: skip },
-                    // { $limit: limit },
+                    { $limit: limit },
                     {
                         $project: {
                             message_id: 1,
@@ -356,15 +356,3 @@ model.add_new_message = async (message_id, message, time, user_id, id) => {
 };
 
 module.exports = model;
-
-// {
-//     user_id1: "uuid1",
-//     user_id2: "uuid2",
-//     last_msg: "asdasdas",
-//     time: 12312321431
-// }
-
-// {
-//     user_id1: "uuid2",
-//     user_id2: "uuid1",
-// }
