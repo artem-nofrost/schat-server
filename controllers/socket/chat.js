@@ -33,19 +33,23 @@ module.exports = (socket) => {
 
     //***************** */
     // количество непрочитанных сообщений
-    // socket.on('countunread', () => {
-    //     const get_chat_list = async () => {
-    //         let mySocket = await get_socket_id(socket);
-    //         let user = await modelUser.find({
-    //             socket_ids: mySocket,
-    //         });
-    //         let user_id = user._id.toString();
-    //         let count_unread = await model.count_unread(user_id);
-
-    //         socket.emit('countunread', count_unread);
-    //     };
-    //     get_chat_list();
-    // });
+    socket.on('countunread', () => {
+        const get_chat_list = async () => {
+            let mySocket = await get_socket_id(socket);
+            let [err, user] = await modelUser.find({
+                socket_ids: mySocket,
+            });
+            if (err) {
+                log('internal', err);
+                socket.emit('countunread', { error: 'internal' });
+                return;
+            }
+            let user_id = user._id.toString();
+            let count_unread = await model.count_unread(user_id);
+            socket.emit('countunread', count_unread);
+        };
+        get_chat_list();
+    });
     ////************** */
 
     // получаем список сообщений с конкретным пользователем, если он есть
@@ -190,7 +194,7 @@ module.exports = (socket) => {
             // let unread_messages = socket.adapter.rooms[id + user_id]
             //     ? false
             //     : true;
-            let unread_messages = false;
+            let unread_messages = true;
             // проверка на существование диалога
             if (data.isMessages) {
                 // обновляем ласт сообщение
@@ -199,6 +203,7 @@ module.exports = (socket) => {
                     time,
                     user_id,
                     id,
+                    message_id,
                     unread_messages,
                 );
                 if (err) {
@@ -227,6 +232,7 @@ module.exports = (socket) => {
                         time,
                         user_id,
                         id,
+                        message_id,
                         unread_messages,
                     );
                     if (err) {
@@ -243,6 +249,7 @@ module.exports = (socket) => {
                         time,
                         user_id,
                         id,
+                        message_id,
                         unread_messages,
                     );
                     if (err) {
@@ -269,6 +276,14 @@ module.exports = (socket) => {
                     .to(mySocket)
                     .emit('message', { error: 'message_not_send' });
                 return;
+            }
+
+            let current_user_sockets = await model.sockets_user(id);
+            let count_unread = await model.count_unread(id);
+            for (let i = 0; i < current_user_sockets.length; i++) {
+                socket
+                    .to(current_user_sockets[i].socket_ids)
+                    .emit('countunread', count_unread);
             }
 
             // обновляем список сообщений
@@ -363,5 +378,131 @@ module.exports = (socket) => {
         };
 
         add_new_message();
+    });
+
+    // обновляем прочитанность конкретного сообщения
+    socket.on('read_message', (id, comp_id) => {
+        const change_state_message = async () => {
+            let [err, message] = await model.find_current_message({
+                message_id: id,
+            });
+            if (err) {
+                log('internal', err);
+                socket.emit('chatlist', { error: 'internal' });
+                return;
+            }
+            if (message) {
+                let [err] = await model.change_read_message(id);
+                if (err) {
+                    log('internal', err);
+                    socket.emit('chatlist', { error: 'internal' });
+                    return;
+                }
+
+                let mySocket = await get_socket_id(socket);
+                let [errUser, user] = await modelUser.find({
+                    socket_ids: mySocket,
+                });
+                if (errUser) {
+                    log('internal', errUser);
+                    socket.emit('chatlist', { error: 'internal' });
+                    return;
+                }
+
+                let user_id = user._id.toString();
+
+                // проверка, совпадает ли id последнего сообщения с id сообщения, которое прочитали
+                let [errLast, updateLast] = await model.update_read_message(id);
+                if (errLast) {
+                    log('internal', errUser);
+                    socket.emit('chatlist', { error: 'internal' });
+                    return;
+                }
+                if (updateLast) {
+                    let current_user_sockets = await model.sockets_user(
+                        user_id,
+                    );
+                    let count_unread = await model.count_unread(user_id);
+                    socket.emit('countunread', count_unread, true);
+                    for (let i = 0; i < current_user_sockets.length; i++) {
+                        socket
+                            .to(current_user_sockets[i].socket_ids)
+                            .emit('countunread', count_unread, true);
+                    }
+                }
+
+                // обновляем список сообщений
+                let users_sockets_dialogs = await model.array_sockets_dialogs(
+                    user_id,
+                    comp_id,
+                );
+                for (let i = 0; i < users_sockets_dialogs.length; i++) {
+                    if (users_sockets_dialogs[i].socket_ids !== mySocket) {
+                        socket
+                            .to(users_sockets_dialogs[i].socket_ids)
+                            .emit('update_read_message', [
+                                {
+                                    message_id: id,
+                                    // read: true,
+                                },
+                            ]);
+                    }
+                }
+            } else {
+                let mySocket = await get_socket_id(socket);
+                socket.to(mySocket).emit('current_chat', {
+                    errorMessage: 'message_not_found',
+                });
+            }
+
+            // ищем id этого сообщения(проверка на существование)
+            //
+
+            // if (ObjectID.isValid(id)) {
+            // let [err, comp_user] = await modelUser.find({
+            //     _id: new ObjectID(id),
+            // });
+            // if (err) {
+            //     log('internal', err);
+            //     socket.emit('load_more_chat', { error: 'internal' });
+            //     return;
+            // }
+            // if (comp_user) {
+            //     let mySocket = await get_socket_id(socket);
+            //     let [err, user] = await modelUser.find({
+            //         socket_ids: mySocket,
+            //     });
+            //     if (err) {
+            //         log('internal', err);
+            //         socket.emit('load_more_chat', { error: 'internal' });
+            //         return;
+            //     }
+            //     let user_id = user._id.toString();
+            //     // socket.join(user_id + id);
+            //     // let skip = 0;
+            //     let limit = 10;
+            //     let [errMessages, messageList] = await model.current_message_list(
+            //         user_id,
+            //         id,
+            //         skip,
+            //         limit,
+            //     );
+            //     if (errMessages) {
+            //         log('internal', errMessages);
+            //         socket.emit('load_more_chat', { error: 'internal' });
+            //         return;
+            //     }
+            //     socket.emit('load_more_chat', {
+            //         companion_id: id,
+            //         messages: messageList,
+            //     });
+            // } else {
+            //     socket.emit('load_more_chat', {
+            //         errorMessage: 'user_not_found',
+            //     });
+            // }
+            // }
+        };
+        change_state_message();
     });
 };

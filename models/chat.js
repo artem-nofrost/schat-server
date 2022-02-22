@@ -98,7 +98,14 @@ model.get_chatlist = async (user_id) => {
     }
 };
 
-model.add_new_chat = async (message, time, user_id, id, unread_messages) => {
+model.add_new_chat = async (
+    message,
+    time,
+    user_id,
+    id,
+    message_id,
+    unread_messages,
+) => {
     try {
         await API((db) =>
             db.collection(collection).insertOne({
@@ -107,6 +114,7 @@ model.add_new_chat = async (message, time, user_id, id, unread_messages) => {
                 last_msg_time: time,
                 last_msg_id: user_id,
                 last_msg: message,
+                message_id: message_id,
                 unread_messages: unread_messages,
                 // count_unread: { $toInt: '$count_unread' } + 1,
             }),
@@ -122,6 +130,7 @@ model.update_last_message = async (
     time,
     user_id,
     id,
+    message_id,
     unread_messages,
 ) => {
     try {
@@ -144,6 +153,7 @@ model.update_last_message = async (
                         last_msg_time: time,
                         last_msg_id: user_id,
                         last_msg: message,
+                        message_id: message_id,
                         unread_messages: unread_messages,
                         // count_unread: '$count_unread' + 1,
                     },
@@ -156,69 +166,105 @@ model.update_last_message = async (
     }
 };
 
-model.update_read_message = async (user_id, id) => {
+// *********
+model.update_read_message = async (id) => {
     try {
-        let prevData = await API((db) =>
-            db.collection(collection).findOne({
-                $or: [
-                    {
-                        user_id1: user_id,
-                        user_id2: id,
-                    },
-                    {
-                        user_id1: id,
-                        user_id2: user_id,
-                    },
-                ],
-            }),
-        );
-
-        let newData = await API((db) =>
+        let data = await API((db) =>
             db.collection(collection).findOneAndUpdate(
                 {
-                    $or: [
-                        {
-                            user_id1: user_id,
-                            user_id2: id,
-                        },
-                        {
-                            user_id1: id,
-                            user_id2: user_id,
-                        },
-                    ],
+                    message_id: id,
                 },
-
                 [
                     {
                         $set: {
-                            unread_messages: {
-                                $cond: {
-                                    if: {
-                                        $and: [
-                                            { $eq: ['$unread_messages', true] },
-                                            { $eq: ['$last_msg_id', user_id] },
-                                        ],
-                                    },
-                                    then: true,
-                                    else: false,
-                                },
-                            },
+                            unread_messages: false,
                         },
                     },
                 ],
                 { returnDocument: 'after' },
             ),
         );
-        return [prevData, newData];
+
+        // let newData = await API((db) =>
+        //     db.collection(collection).findOneAndUpdate(
+        //         {
+        //             $or: [
+        //                 {
+        //                     user_id1: user_id,
+        //                     user_id2: id,
+        //                 },
+        //                 {
+        //                     user_id1: id,
+        //                     user_id2: user_id,
+        //                 },
+        //             ],
+        //         },
+
+        //         [
+        //             {
+        //                 $set: {
+        //                     unread_messages: {
+        //                         $cond: {
+        //                             if: {
+        //                                 $and: [
+        //                                     { $eq: ['$unread_messages', true] },
+        //                                     { $eq: ['$last_msg_id', user_id] },
+        //                                 ],
+        //                             },
+        //                             then: true,
+        //                             else: false,
+        //                         },
+        //                     },
+        //                 },
+        //             },
+        //         ],
+        //         { returnDocument: 'after' },
+        //     ),
+        // );
+        // return [prevData, newData];
+        return [null, data];
     } catch (err) {
         return [err];
     }
 };
 
-model.count_unread = async () => {
+// model.update_read_message = async (id) => {
+//     try {
+//         let data = await API((db) =>
+//             db.collection(collection).findOne({
+//                 message_id: id,
+//             }),
+//         );
+//         return data;
+//     } catch (err) {
+//         return [err];
+//     }
+// };
+
+// *********
+
+// Получаем количество диалогов, где есть непрочитанные сообщения
+model.count_unread = async (id) => {
     try {
         const count = await API((db) =>
-            db.collection(collection).find({ unread_message: true }).count(),
+            db
+                .collection(collection)
+
+                .find({
+                    $or: [
+                        {
+                            user_id1: id,
+                            last_msg_id: { $ne: id },
+                            unread_messages: true,
+                        },
+                        {
+                            user_id2: id,
+                            last_msg_id: { $ne: id },
+                            unread_messages: true,
+                        },
+                    ],
+                })
+                .count(),
         );
         return count;
     } catch (err) {
@@ -337,6 +383,38 @@ model.array_sockets_dialogs = async (user_id, id) => {
     }
 };
 
+model.sockets_user = async (user_id) => {
+    try {
+        const sockets = await API((db) =>
+            db
+                .collection('users')
+                .aggregate([
+                    {
+                        $match: {
+                            _id: {
+                                $in: [new ObjectID(user_id)],
+                            },
+                        },
+                    },
+                    {
+                        $project: {
+                            socket_ids: 1,
+                        },
+                    },
+                    {
+                        $unwind: {
+                            path: '$socket_ids',
+                        },
+                    },
+                ])
+                .toArray(),
+        );
+        return sockets;
+    } catch (err) {
+        return [err];
+    }
+};
+
 model.add_new_message = async (message_id, message, time, user_id, id) => {
     try {
         const new_msg = await API((db) =>
@@ -349,6 +427,39 @@ model.add_new_message = async (message_id, message, time, user_id, id) => {
                 receiver: id,
             }),
         );
+        return [null];
+    } catch (err) {
+        return [err];
+    }
+};
+
+model.find_current_message = async (where) => {
+    try {
+        // console.log(id);
+        const message = await API((db) =>
+            db.collection(collection2).findOne(where),
+        );
+        return [null, message];
+    } catch (err) {
+        return [err];
+    }
+};
+
+model.change_read_message = async (id) => {
+    try {
+        const message = await API((db) =>
+            db.collection(collection2).updateOne(
+                {
+                    message_id: id,
+                },
+                {
+                    $set: {
+                        read: true,
+                    },
+                },
+            ),
+        );
+        console.log(message);
         return [null];
     } catch (err) {
         return [err];
