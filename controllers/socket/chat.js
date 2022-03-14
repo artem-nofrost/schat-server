@@ -31,7 +31,6 @@ module.exports = (socket) => {
         get_chat_list();
     });
 
-    //***************** */
     // количество непрочитанных сообщений
     socket.on('countunread', () => {
         const get_chat_list = async () => {
@@ -50,7 +49,6 @@ module.exports = (socket) => {
         };
         get_chat_list();
     });
-    ////************** */
 
     // получаем список сообщений с конкретным пользователем, если он есть
     socket.on('current_chat', (id) => {
@@ -178,11 +176,14 @@ module.exports = (socket) => {
             let [err, user] = await modelUser.find({
                 socket_ids: mySocket,
             });
-            if (err) {
-                log('internal', err);
-                socket
-                    .to(mySocket)
-                    .emit('message', { error: 'message_not_send' });
+            if (err || !user) {
+                if (err) {
+                    log('internal', err);
+                }
+                socket.emit('message', {
+                    error: 'message_not_send',
+                    id: data.message_id,
+                });
                 return;
             }
             let user_id = user._id.toString();
@@ -208,9 +209,10 @@ module.exports = (socket) => {
                 );
                 if (err) {
                     log('internal', err);
-                    socket
-                        .to(mySocket)
-                        .emit('message', { error: 'message_not_send' });
+                    socket.emit('message', {
+                        error: 'message_not_send',
+                        id: data.message_id,
+                    });
                     return;
                 }
                 newDialog = false;
@@ -219,9 +221,10 @@ module.exports = (socket) => {
                 let [err, check_id] = await model.check_for_dialog(user_id, id);
                 if (err) {
                     log('internal', err);
-                    socket
-                        .to(mySocket)
-                        .emit('message', { error: 'message_not_send' });
+                    socket.emit('message', {
+                        error: 'message_not_send',
+                        id: data.message_id,
+                    });
                     return;
                 }
                 if (check_id) {
@@ -237,9 +240,10 @@ module.exports = (socket) => {
                     );
                     if (err) {
                         log('internal', err);
-                        socket
-                            .to(mySocket)
-                            .emit('message', { error: 'message_not_send' });
+                        socket.emit('message', {
+                            error: 'message_not_send',
+                            id: data.message_id,
+                        });
                         return;
                     }
                 } else {
@@ -254,9 +258,10 @@ module.exports = (socket) => {
                     );
                     if (err) {
                         log('internal', err);
-                        socket
-                            .to(mySocket)
-                            .emit('message', { error: 'message_not_send' });
+                        socket.emit('message', {
+                            error: 'message_not_send',
+                            id: data.message_id,
+                        });
                         return;
                     }
                 }
@@ -272,12 +277,12 @@ module.exports = (socket) => {
             );
             if (errNewMsg) {
                 log('internal', err);
-                socket
-                    .to(mySocket)
-                    .emit('message', { error: 'message_not_send' });
+                socket.emit('message', {
+                    error: 'message_not_send',
+                    id: data.message_id,
+                });
                 return;
             }
-
             let current_user_sockets = await model.sockets_user(id);
             let count_unread = await model.count_unread(id);
             for (let i = 0; i < current_user_sockets.length; i++) {
@@ -345,11 +350,20 @@ module.exports = (socket) => {
                                         users_sockets_dialogs[i]._id.toString()
                                             ? true
                                             : false,
+                                    count_unread: 1,
                                 },
                             ]);
                     }
                 }
             } else {
+                // тут получаем количество непрочитанных
+                let [err, dialog] = await model.get_count_unread(message_id);
+                if (err) {
+                    log('internal', err);
+                    socket.emit('update_chat_list', { error: 'internal' });
+                    return;
+                }
+
                 for (let i = 0; i < users_sockets_dialogs.length; i++) {
                     if (users_sockets_dialogs[i].socket_ids !== mySocket) {
                         socket
@@ -370,6 +384,7 @@ module.exports = (socket) => {
                                         users_sockets_dialogs[i]._id.toString()
                                             ? true
                                             : false,
+                                    count_unread: dialog[0].count_unread,
                                 },
                             ]);
                     }
@@ -429,6 +444,15 @@ module.exports = (socket) => {
                             .to(current_user_sockets[i].socket_ids)
                             .emit('countunread', count_unread, true);
                     }
+                    for (let i = 0; i < current_user_sockets.length; i++) {
+                        socket
+                            .to(current_user_sockets[i].socket_ids)
+                            .emit('update_chat_list_read', {
+                                companion_id: comp_id,
+                                unread_messages: false,
+                                count_unread: 0,
+                            });
+                    }
                 }
 
                 // обновляем список сообщений
@@ -443,14 +467,12 @@ module.exports = (socket) => {
                             .emit('update_read_message', [
                                 {
                                     message_id: id,
-                                    // read: true,
                                 },
                             ]);
                     }
                 }
             } else {
-                let mySocket = await get_socket_id(socket);
-                socket.to(mySocket).emit('current_chat', {
+                socket.emit('current_chat', {
                     errorMessage: 'message_not_found',
                 });
             }

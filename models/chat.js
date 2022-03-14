@@ -6,6 +6,7 @@ const collection2 = 'messages';
 
 const model = {};
 
+// получаем список диалогов
 model.get_chatlist = async (user_id) => {
     try {
         const users = await API((db) =>
@@ -32,7 +33,7 @@ model.get_chatlist = async (user_id) => {
                             last_msg_id: 1,
                             last_msg_time: 1,
                             unread_messages: 1,
-                            // count_unread: 1,
+                            count_unread: 1,
                             companion_id: {
                                 $filter: {
                                     input: ['$user_id1', '$user_id2'],
@@ -49,7 +50,7 @@ model.get_chatlist = async (user_id) => {
                             last_msg_id: 1,
                             last_msg_time: 1,
                             unread_messages: 1,
-                            // count_unread: 1,
+                            count_unread: 1,
 
                             companion_id: { $toObjectId: '$companion_id' },
                         },
@@ -70,7 +71,7 @@ model.get_chatlist = async (user_id) => {
                             last_msg_id: 1,
                             last_msg_time: 1,
                             unread_messages: 1,
-                            // count_unread: 1,
+                            count_unread: 1,
 
                             companion_id: 1,
                             fname: '$user_data.fname',
@@ -98,6 +99,7 @@ model.get_chatlist = async (user_id) => {
     }
 };
 
+// добавляем в список новый диалог
 model.add_new_chat = async (
     message,
     time,
@@ -117,6 +119,7 @@ model.add_new_chat = async (
                 message_id: message_id,
                 unread_messages: unread_messages,
                 // count_unread: { $toInt: '$count_unread' } + 1,
+                count_unread: 1,
             }),
         );
         return [null];
@@ -125,6 +128,7 @@ model.add_new_chat = async (
     }
 };
 
+// обновляем последнее сообщение в конкретном диалоге
 model.update_last_message = async (
     message,
     time,
@@ -155,8 +159,8 @@ model.update_last_message = async (
                         last_msg: message,
                         message_id: message_id,
                         unread_messages: unread_messages,
-                        // count_unread: '$count_unread' + 1,
                     },
+                    $inc: { count_unread: 1 },
                 },
             ),
         );
@@ -166,7 +170,24 @@ model.update_last_message = async (
     }
 };
 
-// *********
+// получаем количество непрочитанных сообщений
+model.get_count_unread = async (id) => {
+    try {
+        let dialog = await API((db) =>
+            db
+                .collection(collection)
+                .find({
+                    message_id: id,
+                })
+                .toArray(),
+        );
+        return [null, dialog];
+    } catch (err) {
+        return [err];
+    }
+};
+
+// обновление прочитанности сообщения в диалоге
 model.update_read_message = async (id) => {
     try {
         let data = await API((db) =>
@@ -178,70 +199,42 @@ model.update_read_message = async (id) => {
                     {
                         $set: {
                             unread_messages: false,
+                            count_unread: 0,
                         },
                     },
                 ],
                 { returnDocument: 'after' },
             ),
         );
-
-        // let newData = await API((db) =>
-        //     db.collection(collection).findOneAndUpdate(
-        //         {
-        //             $or: [
-        //                 {
-        //                     user_id1: user_id,
-        //                     user_id2: id,
-        //                 },
-        //                 {
-        //                     user_id1: id,
-        //                     user_id2: user_id,
-        //                 },
-        //             ],
-        //         },
-
-        //         [
-        //             {
-        //                 $set: {
-        //                     unread_messages: {
-        //                         $cond: {
-        //                             if: {
-        //                                 $and: [
-        //                                     { $eq: ['$unread_messages', true] },
-        //                                     { $eq: ['$last_msg_id', user_id] },
-        //                                 ],
-        //                             },
-        //                             then: true,
-        //                             else: false,
-        //                         },
-        //                     },
-        //                 },
-        //             },
-        //         ],
-        //         { returnDocument: 'after' },
-        //     ),
-        // );
-        // return [prevData, newData];
         return [null, data];
     } catch (err) {
         return [err];
     }
 };
 
-// model.update_read_message = async (id) => {
-//     try {
-//         let data = await API((db) =>
-//             db.collection(collection).findOne({
-//                 message_id: id,
-//             }),
-//         );
-//         return data;
-//     } catch (err) {
-//         return [err];
-//     }
-// };
-
-// *********
+// обновление количество непрочитанных сообщений в диалоге
+model.count_unread_messages = async (id) => {
+    // try {
+    //     let data = await API((db) =>
+    //         db.collection(collection).findOneAndUpdate(
+    //             {
+    //                 message_id: id,
+    //             },
+    //             [
+    //                 {
+    //                     $set: {
+    //                         unread_messages: false,
+    //                     },
+    //                 },
+    //             ],
+    //             { returnDocument: 'after' },
+    //         ),
+    //     );
+    //     return [null, data];
+    // } catch (err) {
+    //     return [err];
+    // }
+};
 
 // Получаем количество диалогов, где есть непрочитанные сообщения
 model.count_unread = async (id) => {
@@ -272,6 +265,7 @@ model.count_unread = async (id) => {
     }
 };
 
+// получаем список сообщений с собеседником
 model.current_message_list = async (user_id, id, skip, limit) => {
     try {
         const messageList = await API((db) =>
@@ -322,6 +316,7 @@ model.current_message_list = async (user_id, id, skip, limit) => {
     }
 };
 
+// провера на существование диалога
 model.check_for_dialog = async (user_id, id) => {
     try {
         let check_id = await API((db) =>
@@ -351,6 +346,7 @@ model.check_for_dialog = async (user_id, id) => {
     }
 };
 
+// массив сокетов пользователей диалога
 model.array_sockets_dialogs = async (user_id, id) => {
     try {
         const sockets = await API((db) =>
@@ -383,6 +379,7 @@ model.array_sockets_dialogs = async (user_id, id) => {
     }
 };
 
+// список сокетов только пользователя
 model.sockets_user = async (user_id) => {
     try {
         const sockets = await API((db) =>
@@ -415,6 +412,7 @@ model.sockets_user = async (user_id) => {
     }
 };
 
+// добавляем новое сообщение
 model.add_new_message = async (message_id, message, time, user_id, id) => {
     try {
         const new_msg = await API((db) =>
@@ -433,9 +431,9 @@ model.add_new_message = async (message_id, message, time, user_id, id) => {
     }
 };
 
+// Поиск конкретного сообщения
 model.find_current_message = async (where) => {
     try {
-        // console.log(id);
         const message = await API((db) =>
             db.collection(collection2).findOne(where),
         );
@@ -445,6 +443,7 @@ model.find_current_message = async (where) => {
     }
 };
 
+// изменение прочитанности сообщений
 model.change_read_message = async (id) => {
     try {
         const message = await API((db) =>
@@ -459,7 +458,6 @@ model.change_read_message = async (id) => {
                 },
             ),
         );
-        console.log(message);
         return [null];
     } catch (err) {
         return [err];
